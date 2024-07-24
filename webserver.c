@@ -3,12 +3,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #define HTML_FILE "index.html"
 #define PORT 8080
 #define BUF_SIZE 1024
 
-void handle_client(int client_socket);
+void *handle_client(void *arg);
+
+typedef struct {
+    int client_socket;
+} client_info_t;
 
 int main() {
     int server_socket, client_socket;
@@ -50,7 +55,25 @@ int main() {
             close(server_socket);
             exit(EXIT_FAILURE);
         }
-        handle_client(client_socket);
+
+        // Allocate memory for client info
+        client_info_t *client_info = malloc(sizeof(client_info_t));
+        if(!client_info) {
+            perror("malloc error");
+            close(client_socket);
+            continue;
+        }
+
+        client_info->client_socket=client_socket;
+
+        // Create thread to handle client
+        pthread_t thread_id;
+        if(pthread_create(&thread_id, NULL, handle_client, client_info) != 0)
+        {
+            perror("thread creation error");
+            free(client_info);
+            close(client_socket);
+        }
     }
 
     // Close server socket
@@ -59,7 +82,9 @@ int main() {
     return 0;
 }
 
-void handle_client(int client_socket) {
+void *handle_client(void *arg) {
+    client_info_t *client_info = (client_info_t *)arg;
+    int client_socket = client_info->client_socket;
     char buffer[BUF_SIZE];
     int bytes_read;
 
@@ -68,7 +93,8 @@ void handle_client(int client_socket) {
     if (bytes_read < 0) {
         perror("read");
         close(client_socket);
-        return;
+        free(client_info);
+        return NULL;
     }
 
     buffer[bytes_read] = '\0';  // terminate string
@@ -78,7 +104,8 @@ void handle_client(int client_socket) {
     if (!html_file) {
         perror("html file error");
         close(client_socket);
-        return;
+        free(client_info);
+        return NULL;
     }
 
     // we get file size by trolling the pointers
@@ -92,7 +119,7 @@ void handle_client(int client_socket) {
         perror("malloc error");
         fclose(html_file);
         close(client_socket);
-        return;
+        return NULL;
     }
 
     fread(html_content, 1, file_size, html_file);
@@ -118,4 +145,6 @@ void handle_client(int client_socket) {
 
     // Close the connection
     close(client_socket);
+    free(client_info);
+    return NULL;
 }
