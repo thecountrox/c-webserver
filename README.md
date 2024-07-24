@@ -4,6 +4,7 @@ Does not utlize SSL (yet)
 
 # Features
 - Only displays a singular index.html as of now
+- Multithreaded client connections
 
 # Planned Features
 - Adding SSL (doesn't make a difference , I know)
