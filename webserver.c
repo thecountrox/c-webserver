@@ -117,7 +117,7 @@ void *handle_client(void *arg) {
     char full_path[512];
     snprintf(full_path, sizeof(full_path), "%s%s", BASE_DIR, path);
 
-    //Check if the file exists and is a regular file
+    // Check if the file exists and is a regular file
     struct stat file_stat;
     if(stat(full_path, &file_stat) < 0 || !S_ISREG(file_stat.st_mode)) {
         // File not found or is not a regular file
@@ -132,8 +132,7 @@ void *handle_client(void *arg) {
         return NULL;
     }
 
-
-
+    // Open files
     FILE *file= fopen(full_path, "r");
     if (!file) {
         perror("file open error");
