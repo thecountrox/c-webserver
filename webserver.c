@@ -4,10 +4,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #define HTML_FILE "index.html"
 #define PORT 8080
 #define BUF_SIZE 1024
+#define BASE_DIR "serve"
 
 void *handle_client(void *arg);
 
@@ -74,6 +77,7 @@ int main() {
             free(client_info);
             close(client_socket);
         }
+        pthread_detach(thread_id);
     }
 
     // Close server socket
@@ -100,48 +104,95 @@ void *handle_client(void *arg) {
     buffer[bytes_read] = '\0';  // terminate string
     printf("Request:\n%s\n", buffer);
 
-    FILE *html_file = fopen(HTML_FILE, "r");
-    if (!html_file) {
-        perror("html file error");
+    // Parse request to obtain file path
+    char method[16], path[256], protocol[16];
+    sscanf(buffer, "%s %s %s", method, path, protocol);
+
+    // Default to index.html if root is requested
+    if (strcmp(path, "/") == 0) {
+        strcpy(path, "/index.html");
+    }
+
+    // Construct full file path
+    char full_path[512];
+    snprintf(full_path, sizeof(full_path), "%s%s", BASE_DIR, path);
+
+    //Check if the file exists and is a regular file
+    struct stat file_stat;
+    if(stat(full_path, &file_stat) < 0 || !S_ISREG(file_stat.st_mode)) {
+        // File not found or is not a regular file
+        const char *not_found_response = "HTTP/1.1 404 Not Found\r\n"
+                                        "Content-Type: text/html\r\n"
+                                        "Content-Length: 13\r\n"
+                                        "\r\n"
+                                        "404 Not Found";
+        write(client_socket, not_found_response, strlen(not_found_response));
+        close(client_socket);
+        free(client_info);
+        return NULL;
+    }
+
+
+
+    FILE *file= fopen(full_path, "r");
+    if (!file) {
+        perror("file open error");
         close(client_socket);
         free(client_info);
         return NULL;
     }
 
     // we get file size by trolling the pointers
-    fseek(html_file, 0, SEEK_END);
-    long file_size = ftell(html_file);
-    rewind(html_file);
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    rewind(file);
 
     // malloc my beloved
-    char *html_content = malloc(file_size + 1);
-    if (!html_content) {
+    char *file_content = malloc(file_size + 1);
+    if (!file_content) {
         perror("malloc error");
-        fclose(html_file);
+        fclose(file);
         close(client_socket);
         return NULL;
     }
 
-    fread(html_content, 1, file_size, html_file);
-    html_content[file_size] = '\0';
-    fclose(html_file);
+    fread(file_content, 1, file_size, file);
+    file_content[file_size] = '\0';
+    fclose(file);
+
+    // Determine the content type
+    const char *content_type = "text/plain";
+    if (strstr(path, ".html") != NULL) {
+        content_type = "text/html";
+    } else if (strstr(path, ".css") != NULL) {
+        content_type = "text/css";
+    } else if (strstr(path, ".js") != NULL) {
+        content_type = "application/javascript";
+    } else if (strstr(path, ".png") != NULL) {
+        content_type = "image/png";
+    } else if (strstr(path, ".jpg") != NULL || strstr(path, ".jpeg") != NULL) {
+        content_type = "image/jpeg";
+    } else if (strstr(path, ".gif") != NULL) {
+        content_type = "image/gif";
+    }
+
 
     char response_header[BUF_SIZE];
     snprintf(response_header, sizeof(response_header),
              "HTTP/1.1 200 OK\r\n"
-             "Content-Type: text/html\r\n"
+             "Content-Type: %s\r\n"
              "Content-Length: %ld\r\n"
              "\r\n",
-             file_size);
+             content_type, file_size);
 
     // writing to this sends the response header
     write(client_socket, response_header, strlen(response_header));
     
-    // writing to this sends the HTML content
-    write(client_socket, html_content, file_size);
+    // writing to this sends the file content
+    write(client_socket, file_content, file_size);
 
     // Free the allocated memory
-    free(html_content);
+    free(file_content);
 
     // Close the connection
     close(client_socket);
